@@ -45,7 +45,7 @@ fetch('/korusmuvek/songs.json').then(response => response.json)
     window.dispatchEvent(new CustomEvent('dbReady'));
 })
     
-
+// continue only if db is ready
 
 window.addEventListener('dbReady', (event) => {
     loadSongList(null, null, 'cim', event);
