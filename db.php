@@ -1,4 +1,6 @@
 <?php
+header('Access-Control-Allow-Origin: *');
+
     $servername = "serverless-europe-west9.sysp0000.db2.skysql.com:4046";
     $username = "dbpgf31104580";
     $password = "4f+S6ce7Qy23N}TVVo8TiCVT";
