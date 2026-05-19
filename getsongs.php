@@ -1,5 +1,6 @@
 <?php
 header("Content-Type: application/json");
+header('Access-Control-Allow-Origin: *');
 require "db.php";
 
 $sql = "SELECT enek.id AS id, szerzo.nev AS szerzo, album.cim AS album, enek.cim AS enekcim, albumid, szerzoid, szulev, halev, szoveg
