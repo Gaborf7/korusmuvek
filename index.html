@@ -27,8 +27,7 @@ if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/service-worker.js');
 }
 const songData = {}
-fetch('/songs.json').then(response => response.json())
-.then(songs => {
+fetch('/songs.json').then(songs => {
     songs.forEach(song => {
         songData[song.id] = {
             'id': song.id,
