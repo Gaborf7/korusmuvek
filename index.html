@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="style.css">
+    <link rel="manifest" href="manifest.json">
+    <title>Palló</title>
+</head>
+
+<body>
+
+<div id="songlist"></div>
+<div id="user-area">
+    <div id="details" class="hidden"></div>
+    <div id="queue" class="hidden"></div>
+    <div id="player">
+        <div id="currentlyPlaying"></div>
+        <audio controls id="boombox" preload="auto" class="hidden"></audio>
+        <audio controls id="blaster" preload="auto" class="hidden"></audio>
+    </div>
+</div>
+</body>
+
+<script>
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/korusmuvek/service-worker.js');
+}
+const songData = {}
+fetch('/korusmuvek/songs.json').then(response => response.json)
+.then(songs => {
+    songs.forEach(song => {
+        songData[song.id] = {
+            'id': song.id,
+            'cim': song.enekcim,
+            'szoveg': song.szoveg,
+            'szerzoid': song.szerzoid,
+            'szerzo': song.szerzo,
+            'szulev': song.szulev,
+            'halev': song.halev,
+            'albumid': song.albumid,
+            'album': song.album
+        }
+    })
+    window.dispatchEvent(new CustomEvent('dbReady'));
+})
+    
+// continue only if db is ready
+
+window.addEventListener('dbReady', (event) => {
+    loadSongList(null, null, 'cim', event);
+});
+
+function loadSongList(album=null, szerzo=null, order='cim', event=null) {
+    if(event !== null) event.stopPropagation();
+    console.log("loading songs")
+    songlist = Object.values(songData).filter(song => {
+        const filterAlbum = (album !== null) ? (song.albumid === album) : true;
+        const filterSzerzo = (szerzo !== null) ? (song.szerzoid === szerzo) : true;
+        return filterAlbum && filterSzerzo;
+    });
+    html = "<div class='header'>"
+    if(album != null || szerzo != null) {
+        if (album !== null) html += `<h2>${songlist[0].album}</h2>`
+        if (szerzo !== null) html += `<h2>${songlist[0].szerzo}</h2>`
+        html += "<button onclick=\"loadSongList()\">[Szűrők törlése]</button></div>";
+    } else html += "<h2 id='title'>Palló Imre Énekkar</h2></div>"
+
+    songlist.sort((a, b) => String(a[order]).localeCompare(String(b[order]), undefined, { numeric: true }));
+    songlist.forEach((song, index) => {
+        if (index > 0 && song[order] === songlist[index - 1][order]) return;
+        html += `<button class='song' onclick="loadSong('${song.cim}')" ondblclick="playSong(${song.id})">${song.cim}</button>`;
+    })
+    document.getElementById("songlist").innerHTML = html;
+}
+
+
+function cimzo(song) {
+    // console.log(`making title for ${song.id}`)
+    szulev = song.szulev
+    halev = song.halev
+    if(song.halev == 0){
+        if(song.szulev == 0) szerzo = song.szerzo 
+        else szerzo = song.szerzo + ` (${szulev}-)`
+    } else szerzo = song.szerzo + ` (${szulev}-${halev})`
+    
+    szerzo = `<button onclick="loadSongList(null, ${song.szerzoid}, 'cim', event)">${szerzo}</button>`
+    cim = szerzo + ': ' + song.cim
+    return cim
+}
+
+function loadSong(title) {
+    console.log(`loading ${title}`)
+    let szoveg = "";
+    let albums = "";
+    songs = Object.values(songData).filter(song => {return song.cim === title})
+
+    songs.forEach(song => {
+        if(song.szoveg && szoveg === "") szoveg = song.szoveg
+        album = `<button onclick="loadSongList(${song.albumid}, null, 'id')">${song.album}</button>`
+        mp3 = `<button onclick="playSong(${song.id})">Ének lejátszása</button>`
+        albums += `<tr><td>${album}</td><td>${cimzo(song)}</td><td>${mp3}</td></tr>`;
+    });
+    html = `<table>
+    ${albums}
+    </table>
+    <p>${szoveg}</p>`
+    document.getElementById("details").innerHTML = html;
+    document.getElementById("details").classList.remove('hidden')
+}
+
+var queue = [] // array of songs (ID-s, based on buttons ondblclick)
+boombox = document.getElementById("boombox");
+blaster = document.getElementById("blaster");
+player = blaster;
+inactive = boombox;
+
+[boombox, blaster].forEach(audioEl => {
+    audioEl.addEventListener('ended', playNext);
+    audioEl.addEventListener('pause', () => { if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused'; });
+    audioEl.addEventListener('play', () => { if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing'; });
+    audioEl.addEventListener('waiting', () => { if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing'; });
+})
+
+
+async function playSong(id) {
+    console.log(`playing ${id}`)
+    song = songData[id]
+    updateMediaSession(song)
+
+    document.getElementById("currentlyPlaying").innerHTML = `${cimzo(song)}`
+
+    player = (player === boombox) ? blaster : boombox;
+    inactive = (player === boombox) ? blaster : boombox;
+    
+    player.classList.remove('hidden')
+    inactive.classList.add('hidden')
+
+    if (!player.src.endsWith(`/enek/${id}.mp3`)){
+        console.log('reloaded')
+        player.src = `/enek/${id}.mp3`}
+    await player.play();
+    updatePositionState()
+
+    if(queue.length == 0){
+        songs = document.getElementById("songlist").getElementsByClassName("song")
+        limit = null
+        for(let i=0; i<songs.length; i++){
+            str = songs[i].getAttribute('ondblclick')
+            if(limit !== null) queue.push(str.slice(str.indexOf("(") + 1, str.indexOf(")")))
+            else if(songs[i].innerHTML == song.cim) limit = i
+        }
+    }
+
+    else {
+        songs = document.getElementById("queue").getElementsByClassName("song")
+        let i = 0
+        while(i<songs.length){
+            if(songs[i].innerHTML == cimzo(song)){
+                queue.splice(0,i+1)
+                break;
+            }
+            i += 1
+        }
+    }
+    renderQueue();
+    preloadNext();
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) {
+            // User opened the browser → re-assert Media Session
+            updateMediaSession(song);
+            updatePositionState();
+  }
+});
+}
+
+async function renderQueue() {
+    cimek = []
+    for(let i=0; i<queue.length; i++){
+        gomb = `<div class="song" onclick='playSong(${queue[i]})'>${cimzo(songData[queue[i]])}</div>`
+        cimek.push(gomb)
+    }
+    document.getElementById("queue").innerHTML = "<div class='header'><h3>Dallista:</h3><button onclick='emptyQueue()'>[Lista törlése]</button></div>" + cimek.join('');
+    if(queue.length == 0) document.getElementById("queue").classList.add('hidden')
+    else document.getElementById("queue").classList.remove('hidden')
+}
+
+function emptyQueue() {
+    queue = []
+    renderQueue();
+}
+function preloadNext() {
+    if(queue.length > 0) {
+        inactive.src = `./enek/${queue[0]}.mp3`;
+        inactive.load();
+    }
+}
+function playNext(){
+    if(queue.length != 0) {
+        nextSong = queue.shift();
+        playSong(nextSong);
+        renderQueue();
+}}
+
+function updateMediaSession(song) {
+    if ('mediaSession' in navigator) {
+        navigator.mediaSession.playbackState = player.paused ? 'paused' : 'playing';
+        navigator.mediaSession.metadata = new MediaMetadata({
+            title: song.cim.trim(),
+            artist: song.szerzo,
+            album: song.album
+        });
+
+        navigator.mediaSession.setActionHandler('play', () => { player.play(); });
+        navigator.mediaSession.setActionHandler('pause', () => { player.pause(); });
+        // Let the lockscreen skip button trigger your function!
+        navigator.mediaSession.setActionHandler('nexttrack', () => { playNext(); });
+        navigator.mediaSession.setActionHandler('seekforward', () => { playNext(); });
+        navigator.mediaSession.setActionHandler('seekbackward', () => { 
+            if('mediaSession' in navigator) {
+                player.currentTime = 0;
+                updatePositionState();
+            }
+        });
+    }
+}
+
+function updatePositionState() {
+    if (!('mediaSession' in navigator) || player.duration === Infinity) return;
+        navigator.mediaSession.playbackState = player.paused ? 'paused' : 'playing';
+    try {
+        navigator.mediaSession.setPositionState({
+            duration: player.duration || 0,
+            position: player.currentTime,
+            playbackRate: player.playbackRate || 1.0
+        });
+    } catch (e) { /* ignore invalid states */ }
+}
+
+
+</script>
+
+</html>
