@@ -29,6 +29,7 @@ if ('serviceWorker' in navigator) {
 const songData = {}
 fetch('https://gaborf7.github.io/korusmuvek/songs.json').then(response => response.json)
 .then(songs => {
+    console.log(songs);
     songs.forEach(song => {
         songData[song.id] = {
             'id': song.id,
